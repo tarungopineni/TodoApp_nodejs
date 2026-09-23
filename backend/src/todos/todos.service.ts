@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, isValidObjectId } from 'mongoose';
 import { Todo, TodoDocument } from './schemas/todo.schema';
@@ -42,6 +42,34 @@ export class TodosService {
    * Create a new Todo for the authenticated user
    */
   async create(createTodoDto: CreateTodoDto, userId: string): Promise<TodoDocument> {
+    const now = new Date();
+
+    if (createTodoDto.task_datetime) {
+      const start = new Date(createTodoDto.task_datetime);
+      if (!isNaN(start.getTime()) && start < now) {
+        throw new BadRequestException('Start time cannot be in the past.');
+      }
+    }
+
+    if (createTodoDto.deadline) {
+      const end = new Date(createTodoDto.deadline);
+      if (!isNaN(end.getTime()) && end < now) {
+        throw new BadRequestException('Deadline cannot be in the past.');
+      }
+    }
+
+    if (createTodoDto.task_datetime && createTodoDto.deadline) {
+      const start = new Date(createTodoDto.task_datetime);
+      const end = new Date(createTodoDto.deadline);
+      if (
+        !isNaN(start.getTime()) &&
+        !isNaN(end.getTime()) &&
+        end < start
+      ) {
+        throw new BadRequestException('Deadline cannot be before the task start time.');
+      }
+    }
+
     const createdTodo = new this.todoModel({
       ...createTodoDto,
       owner_id: userId,

@@ -185,8 +185,8 @@ describe('TodoMobile Backend API (e2e)', () => {
           description: 'Build NestJS backend app',
           priority: 5,
           complete: false,
-          task_datetime: '2026-09-23T10:00:00.000Z',
-          deadline: '2026-09-24T18:00:00.000Z',
+          task_datetime: '2030-09-23T10:00:00.000Z',
+          deadline: '2030-09-24T18:00:00.000Z',
         })
         .expect(201);
 
@@ -228,8 +228,8 @@ describe('TodoMobile Backend API (e2e)', () => {
           description: 'Build NestJS backend app',
           priority: 5,
           complete: true,
-          task_datetime: '2026-09-23T10:00:00.000Z',
-          deadline: '2026-09-24T18:00:00.000Z',
+          task_datetime: '2030-09-23T10:00:00.000Z',
+          deadline: '2030-09-24T18:00:00.000Z',
         })
         .expect(200);
 
@@ -280,6 +280,90 @@ describe('TodoMobile Backend API (e2e)', () => {
         .expect(200);
 
       expect(response.body.length).toBe(0);
+    });
+
+    describe('Datetime Validation', () => {
+      it('POST /todos/todos - Fail on past task_datetime (400)', async () => {
+        const pastStart = new Date(Date.now() - 3600000).toISOString();
+        const futureDeadline = new Date(Date.now() + 86400000).toISOString();
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Past Start Todo',
+            description: 'Testing past start time',
+            priority: 3,
+            complete: false,
+            task_datetime: pastStart,
+            deadline: futureDeadline,
+          })
+          .expect(400);
+
+        expect(response.body.message).toBe('Start time cannot be in the past.');
+      });
+
+      it('POST /todos/todos - Fail on past deadline (400)', async () => {
+        const futureStart = new Date(Date.now() + 3600000).toISOString();
+        const pastDeadline = new Date(Date.now() - 3600000).toISOString();
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Past Deadline Todo',
+            description: 'Testing past deadline',
+            priority: 3,
+            complete: false,
+            task_datetime: futureStart,
+            deadline: pastDeadline,
+          })
+          .expect(400);
+
+        expect(response.body.message).toBe('Deadline cannot be in the past.');
+      });
+
+      it('POST /todos/todos - Fail when deadline is before task_datetime (400)', async () => {
+        const futureStart = new Date(Date.now() + 86400000).toISOString();
+        const earlierDeadline = new Date(Date.now() + 3600000).toISOString();
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Invalid Order Todo',
+            description: 'Deadline before start time',
+            priority: 3,
+            complete: false,
+            task_datetime: futureStart,
+            deadline: earlierDeadline,
+          })
+          .expect(400);
+
+        expect(response.body.message).toBe('Deadline cannot be before the task start time.');
+      });
+
+      it('POST /todos/todos - Succeed with valid future start time and deadline (201)', async () => {
+        const futureStart = new Date(Date.now() + 3600000).toISOString();
+        const futureDeadline = new Date(Date.now() + 86400000).toISOString();
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Valid Datetime Todo',
+            description: 'Future start and deadline',
+            priority: 3,
+            complete: false,
+            task_datetime: futureStart,
+            deadline: futureDeadline,
+          })
+          .expect(201);
+
+        expect(response.body.message).toBe('Todo created successfully');
+        expect(response.body.todo.task_datetime).toBe(futureStart);
+        expect(response.body.todo.deadline).toBe(futureDeadline);
+      });
     });
   });
 });
