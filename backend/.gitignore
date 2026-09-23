@@ -1,0 +1,19 @@
+# node.js
+/node_modules
+/dist
+npm-debug.log
+yarn-error.log
+
+# env
+.env
+.env.production
+.env.local
+
+# IDE
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
