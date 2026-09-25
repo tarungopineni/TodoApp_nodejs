@@ -1,14 +1,20 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, isValidObjectId } from 'mongoose';
 import { Todo, TodoDocument } from './schemas/todo.schema';
 import { CreateTodoDto } from './dto/create-todo.dto';
 import { UpdateTodoDto } from './dto/update-todo.dto';
+import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class TodosService {
+  private readonly logger = new Logger(TodosService.name);
+
   constructor(
     @InjectModel(Todo.name) private todoModel: Model<TodoDocument>,
+    private readonly usersService: UsersService,
+    private readonly mailService: MailService,
   ) {}
 
   /**
@@ -73,8 +79,40 @@ export class TodosService {
     const createdTodo = new this.todoModel({
       ...createTodoDto,
       owner_id: userId,
+      mailSent: false,
     });
-    return createdTodo.save();
+    const savedTodo = await createdTodo.save();
+
+    // Check if deadline is within the next 1 hour for immediate reminder email
+    if (savedTodo.deadline) {
+      const nowMs = Date.now();
+      const deadlineMs = new Date(savedTodo.deadline).getTime();
+      const oneHourFromNowMs = nowMs + 60 * 60 * 1000;
+
+      if (!isNaN(deadlineMs) && deadlineMs >= nowMs && deadlineMs <= oneHourFromNowMs) {
+        try {
+          const owner = await this.usersService.findById(userId);
+          if (owner && owner.email) {
+            const success = await this.mailService.sendReminderEmail(
+              owner.email,
+              savedTodo.title,
+              savedTodo.description,
+              savedTodo.deadline,
+            );
+            if (success) {
+              savedTodo.mailSent = true;
+              await savedTodo.save();
+            }
+          }
+        } catch (err: any) {
+          this.logger.error(
+            `Immediate reminder email failed for todo ${savedTodo._id}: ${err?.message || err}`,
+          );
+        }
+      }
+    }
+
+    return savedTodo;
   }
 
   /**

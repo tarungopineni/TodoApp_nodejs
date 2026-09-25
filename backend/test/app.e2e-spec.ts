@@ -5,6 +5,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { AppModule } from '../src/app.module';
+import { MailService } from '../src/mail/mail.service';
 
 describe('TodoMobile Backend API (e2e)', () => {
   let app: INestApplication;
@@ -15,15 +16,23 @@ describe('TodoMobile Backend API (e2e)', () => {
   let user2Token: string;
   let todo1Id: string;
 
+  const mockMailService = {
+    sendReminderEmail: jest.fn().mockResolvedValue(true),
+  };
+
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
     const uri = mongoServer.getUri();
     process.env.MONGODB_URI = uri;
     process.env.JWT_SECRET = 'test_jwt_secret';
+    process.env.REMINDER_CRON_SECRET = 'test_cron_secret';
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(MailService)
+      .useValue(mockMailService)
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -363,6 +372,110 @@ describe('TodoMobile Backend API (e2e)', () => {
         expect(response.body.message).toBe('Todo created successfully');
         expect(response.body.todo.task_datetime).toBe(futureStart);
         expect(response.body.todo.deadline).toBe(futureDeadline);
+      });
+    });
+
+    describe('SMTP Email Reminders & Internal Cron Endpoint', () => {
+      it('Todo deadline > 1 hour away -> no immediate email sent (mailSent: false)', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+        const futureDeadline = new Date(Date.now() + 2 * 3600000).toISOString(); // 2 hours away
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Far Future Todo',
+            description: 'Deadline 2h away',
+            priority: 3,
+            complete: false,
+            deadline: futureDeadline,
+          })
+          .expect(201);
+
+        expect(mockMailService.sendReminderEmail).not.toHaveBeenCalled();
+        expect(response.body.todo.mailSent).toBe(false);
+      });
+
+      it('Todo deadline within 1 hour -> immediate email sent successfully (mailSent: true)', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+        mockMailService.sendReminderEmail.mockResolvedValueOnce(true);
+        const soonDeadline = new Date(Date.now() + 30 * 60000).toISOString(); // 30 minutes away
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Urgent Todo',
+            description: 'Deadline 30m away',
+            priority: 5,
+            complete: false,
+            deadline: soonDeadline,
+          })
+          .expect(201);
+
+        expect(mockMailService.sendReminderEmail).toHaveBeenCalledTimes(1);
+        expect(response.body.todo.mailSent).toBe(true);
+      });
+
+      it('Failed immediate email -> creation succeeds but mailSent remains false', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+        mockMailService.sendReminderEmail.mockResolvedValueOnce(false); // Simulate SMTP failure
+        const soonDeadline = new Date(Date.now() + 45 * 60000).toISOString(); // 45 minutes away
+
+        const response = await request(app.getHttpServer())
+          .post('/todos/todos')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Failed Email Todo',
+            description: 'Testing SMTP error resilience',
+            priority: 3,
+            complete: false,
+            deadline: soonDeadline,
+          })
+          .expect(201);
+
+        expect(mockMailService.sendReminderEmail).toHaveBeenCalledTimes(1);
+        expect(response.body.todo.mailSent).toBe(false);
+      });
+
+      it('POST /internal/reminders/check without Authorization header -> 401 Unauthorized', async () => {
+        await request(app.getHttpServer())
+          .post('/internal/reminders/check')
+          .expect(401);
+      });
+
+      it('POST /internal/reminders/check with incorrect secret -> 401 Unauthorized', async () => {
+        await request(app.getHttpServer())
+          .post('/internal/reminders/check')
+          .set('Authorization', 'Bearer wrong_secret')
+          .expect(401);
+      });
+
+      it('POST /internal/reminders/check with correct secret -> processes pending reminders', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+        mockMailService.sendReminderEmail.mockResolvedValue(true);
+
+        const response = await request(app.getHttpServer())
+          .post('/internal/reminders/check')
+          .set('Authorization', 'Bearer test_cron_secret')
+          .expect(200);
+
+        expect(response.body.checked).toBeGreaterThanOrEqual(1);
+        expect(response.body.sent).toBeGreaterThanOrEqual(1);
+        expect(response.body.failed).toBe(0);
+      });
+
+      it('POST /internal/reminders/check - Duplicate protection (mailSent: true todos not re-sent)', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+
+        const response = await request(app.getHttpServer())
+          .post('/internal/reminders/check')
+          .set('Authorization', 'Bearer test_cron_secret')
+          .expect(200);
+
+        // Already processed todos with mailSent: true are skipped
+        expect(response.body.sent).toBe(0);
+        expect(mockMailService.sendReminderEmail).not.toHaveBeenCalled();
       });
     });
   });

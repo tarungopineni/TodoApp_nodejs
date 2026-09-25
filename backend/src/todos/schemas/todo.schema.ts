@@ -37,6 +37,9 @@ export class Todo {
   @Prop({ default: null })
   deadline: string;
 
+  @Prop({ default: false })
+  mailSent: boolean;
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   owner_id: MongooseSchema.Types.ObjectId | string;
 }

@@ -5,6 +5,8 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { TodosModule } from './todos/todos.module';
+import { MailModule } from './mail/mail.module';
+import { RemindersModule } from './reminders/reminders.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { TodosModule } from './todos/todos.module';
     UsersModule,
     AuthModule,
     TodosModule,
+    MailModule,
+    RemindersModule,
   ],
   controllers: [AppController],
 })
