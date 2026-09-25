@@ -7,6 +7,7 @@ import { UsersModule } from './users/users.module';
 import { TodosModule } from './todos/todos.module';
 import { MailModule } from './mail/mail.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { DailyTasksModule } from './daily-tasks/daily-tasks.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { RemindersModule } from './reminders/reminders.module';
     TodosModule,
     MailModule,
     RemindersModule,
+    DailyTasksModule,
   ],
   controllers: [AppController],
 })

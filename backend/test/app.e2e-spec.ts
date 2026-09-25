@@ -506,5 +506,193 @@ describe('TodoMobile Backend API (e2e)', () => {
         expect(Array.isArray(response.body.results)).toBe(true);
       });
     });
+
+    describe('Daily Tasks & Progress Dashboard', () => {
+      let dailyTaskId1: string;
+
+      it('A. First Daily Task creation', async () => {
+        // Initialize user sync date first
+        await request(app.getHttpServer())
+          .post('/daily-tasks/sync')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        const res = await request(app.getHttpServer())
+          .post('/daily-tasks')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Exercise for 30 minutes',
+            description: 'Daily habit',
+            priority: 4,
+          })
+          .expect(201);
+
+        expect(res.body.dailyTask).toBeDefined();
+        expect(res.body.dailyTask.title).toBe('Exercise for 30 minutes');
+        expect(res.body.dailyTask.complete).toBe(false);
+        dailyTaskId1 = res.body.dailyTask.id;
+      });
+
+      it('B. Complete task today', async () => {
+        const res = await request(app.getHttpServer())
+          .patch(`/daily-tasks/${dailyTaskId1}/toggle`)
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.dailyTask.complete).toBe(true);
+      });
+
+      it('C. Uncomplete task today & toggle back', async () => {
+        const res1 = await request(app.getHttpServer())
+          .patch(`/daily-tasks/${dailyTaskId1}/toggle`)
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res1.body.dailyTask.complete).toBe(false);
+
+        // Toggle back to complete for progress testing
+        const res2 = await request(app.getHttpServer())
+          .patch(`/daily-tasks/${dailyTaskId1}/toggle`)
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res2.body.dailyTask.complete).toBe(true);
+      });
+
+      it('D. Same-day sync -> no reset (synced: false)', async () => {
+        const res = await request(app.getHttpServer())
+          .post('/daily-tasks/sync')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.synced).toBe(false);
+        expect(res.body.resetCount).toBe(0);
+      });
+
+      it('E. Progress calculation after completion', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/progress')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.todayCompleted).toBe(1);
+        expect(res.body.todayTotal).toBe(1);
+        expect(res.body.todayPercentage).toBe(100);
+      });
+
+      it('F. Multiple missed days sync handling', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/history?days=7')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(Array.isArray(res.body)).toBe(true);
+        expect(res.body.length).toBe(7);
+      });
+
+      it('G. Newly created Daily Task does not get fake historical records for prior dates', async () => {
+        const newRes = await request(app.getHttpServer())
+          .post('/daily-tasks')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Read 20 pages',
+            description: 'New daily task',
+            priority: 2,
+          })
+          .expect(201);
+
+        expect(newRes.body.dailyTask.creationDate).toBeDefined();
+      });
+
+      it('H. Repeated sync -> no duplicate history', async () => {
+        const res1 = await request(app.getHttpServer())
+          .post('/daily-tasks/sync')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        const res2 = await request(app.getHttpServer())
+          .post('/daily-tasks/sync')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res1.body.synced).toBe(false);
+        expect(res2.body.synced).toBe(false);
+      });
+
+      it('I. Delete Daily Task -> history deleted & task removed', async () => {
+        const createRes = await request(app.getHttpServer())
+          .post('/daily-tasks')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .send({
+            title: 'Temporary Daily Task',
+            description: 'To be deleted',
+            priority: 1,
+          })
+          .expect(201);
+
+        const tempId = createRes.body.dailyTask.id;
+
+        await request(app.getHttpServer())
+          .delete(`/daily-tasks/${tempId}`)
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+      });
+
+      it('J. User isolation - User 2 cannot access or delete User 1 Daily Task', async () => {
+        await request(app.getHttpServer())
+          .delete(`/daily-tasks/${dailyTaskId1}`)
+          .set('Authorization', `Bearer ${user2Token}`)
+          .expect(403);
+      });
+
+      it('K. Dashboard percentage calculation', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/progress')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.todayPercentage).toBeGreaterThanOrEqual(0);
+        expect(res.body.todayPercentage).toBeLessThanOrEqual(100);
+      });
+
+      it('L. Current streak calculation', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/progress')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.currentStreak).toBeDefined();
+        expect(typeof res.body.currentStreak).toBe('number');
+      });
+
+      it('M. Best streak calculation', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/progress')
+          .set('Authorization', `Bearer ${user1Token}`)
+          .expect(200);
+
+        expect(res.body.bestStreak).toBeDefined();
+        expect(typeof res.body.bestStreak).toBe('number');
+      });
+
+      it('N. Zero Daily Tasks handled correctly for User 2', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/daily-tasks/progress')
+          .set('Authorization', `Bearer ${user2Token}`)
+          .expect(200);
+
+        expect(res.body.todayTotal).toBe(0);
+        expect(res.body.todayCompleted).toBe(0);
+        expect(res.body.todayPercentage).toBe(0);
+        expect(res.body.currentStreak).toBe(0);
+        expect(res.body.bestStreak).toBe(0);
+      });
+
+      it('O. Sync failure handling & unauthenticated protection', async () => {
+        await request(app.getHttpServer())
+          .post('/daily-tasks/sync')
+          .expect(401);
+      });
+    });
   });
 });

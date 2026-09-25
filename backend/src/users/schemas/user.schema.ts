@@ -40,6 +40,9 @@ export class User {
 
   @Prop({ default: null })
   phonenumber: string;
+
+  @Prop({ default: null })
+  lastDailyTaskSyncDate: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
