@@ -477,6 +477,20 @@ describe('TodoMobile Backend API (e2e)', () => {
         expect(response.body.sent).toBe(0);
         expect(mockMailService.sendReminderEmail).not.toHaveBeenCalled();
       });
+
+      it('POST /internal/email/test with correct secret -> returns immediately with success message', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+
+        const response = await request(app.getHttpServer())
+          .post('/internal/email/test')
+          .set('Authorization', 'Bearer test_cron_secret')
+          .send({ to: 'test@example.com' })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Email sending initiated');
+        expect(mockMailService.sendReminderEmail).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });
