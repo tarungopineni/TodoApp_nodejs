@@ -491,6 +491,20 @@ describe('TodoMobile Backend API (e2e)', () => {
         expect(response.body.message).toBe('Email sending initiated');
         expect(mockMailService.sendReminderEmail).toHaveBeenCalledTimes(1);
       });
+
+      it('POST /internal/reminders/test-send without auth -> evaluates eligible tasks and returns results', async () => {
+        mockMailService.sendReminderEmail.mockClear();
+        mockMailService.sendReminderEmail.mockResolvedValue(true);
+
+        const response = await request(app.getHttpServer())
+          .post('/internal/reminders/test-send')
+          .expect(200);
+
+        expect(response.body.eligible).toBeDefined();
+        expect(response.body.sent).toBeDefined();
+        expect(response.body.failed).toBeDefined();
+        expect(Array.isArray(response.body.results)).toBe(true);
+      });
     });
   });
 });
